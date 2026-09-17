@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tim-sector-ranking",
   "main": "src/worker.js",
-  "compatibility_date": "2026-09-16",
+  "compatibility_date": "2026-09-17",
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

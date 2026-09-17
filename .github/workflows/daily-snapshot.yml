@@ -10,6 +10,9 @@ on:
       - '.github/workflows/daily-snapshot.yml'
 permissions:
   contents: write
+concurrency:
+  group: daily-sector-snapshot
+  cancel-in-progress: false
 jobs:
   snapshot:
     runs-on: ubuntu-latest
@@ -20,8 +23,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Wait for Cloudflare deploy
-        run: sleep 30
       - name: Build T-1 to T-10 snapshot
         run: node scripts/build-snapshot.mjs
       - name: Commit snapshot if changed
@@ -31,4 +32,5 @@ jobs:
           git add public/mapping.json public/rank-history.json
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "Update daily sector rank snapshot"
-          git push
+          git pull --rebase origin main
+          git push origin HEAD:main

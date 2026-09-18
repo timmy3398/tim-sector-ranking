@@ -1,5 +1,5 @@
 const TWSE_CLOSE='https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
-const TPEX_CLOSE='https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes';
+const TPEX_CLOSE='https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes';
 const CORS={'access-control-allow-origin':'*','access-control-allow-methods':'GET,OPTIONS','access-control-allow-headers':'Content-Type'};
 const n=v=>{if(v==null)return null;const s=String(v).trim();if(!s||s==='-'||s==='--')return null;const x=Number(s.replaceAll(',','').replace(/[^\d.-]/g,''));return Number.isFinite(x)?x:null};
 const pick=(o,ks)=>{for(const k of ks)if(o?.[k]!=null&&o[k]!=='')return o[k];return null};

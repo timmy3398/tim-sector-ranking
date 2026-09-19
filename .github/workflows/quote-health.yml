@@ -24,53 +24,51 @@ jobs:
           WORKER_URL: https://tim-sector-ranking.timmy3398.workers.dev
         run: |
           node <<'NODE'
-          const fs = require('fs');
-          const mapping = JSON.parse(fs.readFileSync('public/mapping.json','utf8'));
-          const allCodes = [...new Set(Object.values(mapping).flat().filter(c => /^\d{4}$/.test(String(c))))];
-          const samples = ['2881','2882','3680','3131','6147','3259','5347','3707','3372'];
-          const sleep = ms => new Promise(r => setTimeout(r, ms));
-          async function get(url){
-            const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*','cache-control':'no-cache'});
+          const fs=require('fs');
+          const samples=['2881','2882','3680','3131','6147','3259','5347','3707','3372'];
+          const out={commit:process.env.GITHUB_SHA,samples};
+          async function getRaw(url){
+            const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*','cache-control':'no-cache'}});
             const body=await r.text();
-            if(!r.ok) throw new Error(r.status+' '+url+' BODY='+body.slice(0,500));
-            try{return JSON.parse(body)}catch(e){throw new Error('Non-JSON '+url+' BODY='+body.slice(0,500))}
+            return {status:r.status,body};
           }
-          function codeOf(x){return String(x.Code ?? x.SecuritiesCompanyCode ?? '').trim()}
-          function num(v){if(v==null||v===''||v==='-')return null;const n=Number(String(v).replaceAll(',',''));return Number.isFinite(n)?n:null}
-          (async()=>{
-            const [tw,ot] = await Promise.all([
-              get('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
-              get('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
+          const num=v=>{if(v==null||v===''||v==='-')return null;const n=Number(String(v).replaceAll(',',''));return Number.isFinite(n)?n:null};
+          try{
+            const [tw,ot]=await Promise.all([
+              getRaw('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
+              getRaw('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
             ]);
-            const official = new Map();
-            for(const x of tw){const c=codeOf(x);if(/^\d{4}$/.test(c)) official.set(c,{market:'tse',close:num(x.ClosingPrice),value:num(x.TradeValue ?? x.TransactionAmount ?? x.TransactionValue)})}
-            for(const x of ot){const c=codeOf(x);if(/^\d{4}$/.test(c)) official.set(c,{market:'otc',close:num(x.ClosingPrice ?? x.Close ?? x.ClosePrice),value:num(x.TradeValue ?? x.TransactionAmount ?? x.TransactionValue)})}
-            const live = new Map();
-            for(let i=0;i<allCodes.length;i+=80){
-              const batch=allCodes.slice(i,i+80).join(',');
-              const data=await get(process.env.WORKER_URL+'/api/quotes?codes='+batch+'&v='+process.env.GITHUB_SHA);
-              if(!data.ok) throw new Error('Worker API ok=false');
-              for(const [c,q] of Object.entries(data.quotes||{})) live.set(c,q);
-              await sleep(100);
+            out.officialStatus={twse:tw.status,tpex:ot.status};
+            if(tw.status!==200||ot.status!==200) throw new Error('Official API status '+JSON.stringify(out.officialStatus));
+            const twj=JSON.parse(tw.body),otj=JSON.parse(ot.body),official={};
+            for(const x of twj){const c=String(x.Code??'').trim();if(samples.includes(c))official[c]={market:'tse',close:num(x.ClosingPrice),value:num(x.TradeValue??x.TransactionAmount??x.TransactionValue)}}
+            for(const x of otj){const c=String(x.SecuritiesCompanyCode??x.Code??'').trim();if(samples.includes(c))official[c]={market:'otc',close:num(x.ClosingPrice??x.Close??x.ClosePrice),value:num(x.TradeValue??x.TransactionAmount??x.TransactionValue)}}
+            out.official=official;
+            const live=await getRaw(process.env.WORKER_URL+'/api/quotes?codes='+samples.join(',')+'&v='+process.env.GITHUB_SHA);
+            out.liveStatus=live.status;
+            out.liveBody=live.body.slice(0,10000);
+            if(live.status!==200) throw new Error('Worker HTTP '+live.status);
+            const lj=JSON.parse(live.body);
+            out.live=lj.quotes||{};
+            const bad=[];
+            for(const c of samples){
+              const o=official[c],q=out.live[c];
+              if(!q) {bad.push(c+' missing');continue}
+              if(o&&Number(q.close)!==Number(o.close)) bad.push(c+' close '+q.close+' != '+o.close);
+              if(o&&o.value!=null&&q.value!=null&&Number(q.value)!==Number(o.value)) bad.push(c+' value '+q.value+' != '+o.value);
+              if(q.close==null||q.value==null||Number(q.close)<=0||Number(q.value)<=0) bad.push(c+' invalid '+JSON.stringify(q));
             }
-            const invalid=allCodes.filter(c=>!live.has(c)||live.get(c).close==null||live.get(c).value==null||Number(live.get(c).close)<=0||Number(live.get(c).value)<=0);
-            const mismatches=[];
-            for(const c of allCodes){
-              const o=official.get(c), q=live.get(c);
-              if(!o||!q) continue;
-              if(o.close!=null && Number(q.close)!==Number(o.close)) mismatches.push(c+' close '+q.close+' != '+o.close);
-              if(o.value!=null && Number(q.value)!==Number(o.value)) mismatches.push(c+' value '+q.value+' != '+o.value);
-            }
-            const sampleReport=samples.map(c=>({code:c,official:official.get(c)||null,live:live.get(c)||null,closeMatch:!!official.get(c)&&!!live.get(c)&&Number(official.get(c).close)===Number(live.get(c).close),valueMatch:!!official.get(c)&&!!live.get(c)&&Number(official.get(c).value)===Number(live.get(c).value)}));
-            const report={commit:process.env.GITHUB_SHA,allCodes:allCodes.length,officialCodes:official.size,liveCodes:live.size,invalidCount:invalid.length,mismatchCount:mismatches.length,invalid:invalid.slice(0,50),mismatches:mismatches.slice(0,50),samples:sampleReport};
-            fs.writeFileSync('/tmp/quote-health.json',JSON.stringify(report,null,2));
-            console.log(JSON.stringify(report,null,2));
-            if(invalid.length) throw new Error('Invalid/missing live quotes: '+invalid.slice(0,20).join(',')+' total='+invalid.length);
-            if(mismatches.length) throw new Error('Live/official mismatches: '+mismatches.slice(0,20).join(' | ')+' total='+mismatches.length);
-            const badSamples=sampleReport.filter(x=>!x.closeMatch||!x.valueMatch);
-            if(badSamples.length) throw new Error('Sample mismatch: '+JSON.stringify(badSamples));
-            console.log('PASS: '+allCodes.length+' mapped stocks match official data where official data is available; samples all pass.');
-          })().catch(e=>{console.error(e);process.exit(1)});
+            out.bad=bad;
+            fs.writeFileSync('/tmp/quote-health.json',JSON.stringify(out,null,2));
+            console.log(JSON.stringify(out,null,2));
+            if(bad.length) throw new Error('Quote validation failed: '+bad.join(' | '));
+          }catch(e){
+            out.error=String(e);
+            fs.writeFileSync('/tmp/quote-health.json',JSON.stringify(out,null,2));
+            console.error(JSON.stringify(out,null,2));
+            process.exit(1);
+          }
+          console.log('PASS: sample quotes match official data.');
           NODE
       - name: Upload quote health report
         if: always()

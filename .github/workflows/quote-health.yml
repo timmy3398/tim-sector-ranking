@@ -38,13 +38,13 @@ jobs:
           try{
             const [tw,ot]=await Promise.all([
               getRaw('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
-              getRaw('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes')
+              getRaw('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
             ]);
             out.officialStatus={twse:tw.status,tpex:ot.status};
             if(tw.status!==200||ot.status!==200) throw new Error('Official API status '+JSON.stringify(out.officialStatus));
             const twj=JSON.parse(tw.body),otj=JSON.parse(ot.body),official={};
             for(const x of twj){const c=String(x.Code??'').trim();if(samples.includes(c))official[c]={market:'tse',close:num(x.ClosingPrice),value:num(x.TradeValue??x.TransactionAmount??x.TransactionValue)}}
-            for(const x of otj){const c=String(x.SecuritiesCompanyCode??x.Code??'').trim();if(samples.includes(c))official[c]={market:'otc',close:num(x.ClosingPrice??x.Close??x.ClosePrice),value:num(x.TradeValue??x.TransactionAmount??x.TransactionValue)}}
+            for(const x of otj){const c=String(x.SecuritiesCompanyCode??x.Code??'').trim();if(samples.includes(c))official[c]={market:'otc',close:num(x.ClosingPrice??x.Close??x.ClosePrice),value:num(x.TransactionAmount??x.TradeValue??x.TransactionValue)}}
             out.official=official;
             const live=await getRaw(process.env.WORKER_URL+'/api/quotes?codes='+samples.join(',')+'&v='+process.env.GITHUB_SHA);
             out.liveStatus=live.status;

@@ -1,4 +1,6 @@
 name: Quote health check
+permissions:
+  contents: write
 on:
   push:
     branches: [main]
@@ -70,6 +72,21 @@ jobs:
           }
           console.log('PASS: sample quotes match official data.');
           NODE
+      - name: Publish diagnostic report
+        if: always()
+        run: |
+          if [ ! -f /tmp/quote-health.json ]; then
+            printf '{"error":"No diagnostic report was generated"}\n' > /tmp/quote-health.json
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan quote-health-report
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/quote-health.json quote-health-report.json
+          git add quote-health-report.json
+          git commit -m "Update quote health report"
+          git push --force origin HEAD:quote-health-report
+
       - name: Upload quote health report
         if: always()
         uses: actions/upload-artifact@v4

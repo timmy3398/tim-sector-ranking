@@ -38,7 +38,7 @@ jobs:
           try{
             const [tw,ot]=await Promise.all([
               getRaw('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
-              getRaw('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
+              getRaw('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes')
             ]);
             out.officialStatus={twse:tw.status,tpex:ot.status};
             if(tw.status!==200||ot.status!==200) throw new Error('Official API status '+JSON.stringify(out.officialStatus));

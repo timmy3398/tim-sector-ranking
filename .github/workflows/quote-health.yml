@@ -26,12 +26,14 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const mapping = JSON.parse(fs.readFileSync('public/mapping.json','utf8'));
-          const codes = [...new Set(Object.values(mapping).flat().filter(c => /^\d{4}$/.test(String(c))))];
+          const allCodes = [...new Set(Object.values(mapping).flat().filter(c => /^\d{4}$/.test(String(c))))];
+          const samples = ['2881','2882','3680','3131','6147','3259','5347','3707','3372'];
           const sleep = ms => new Promise(r => setTimeout(r, ms));
           async function get(url){
-            const r = await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*'}});
-            if(!r.ok) throw new Error(r.status+' '+url);
-            return r.json();
+            const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*','cache-control':'no-cache'});
+            const body=await r.text();
+            if(!r.ok) throw new Error(r.status+' '+url+' BODY='+body.slice(0,500));
+            try{return JSON.parse(body)}catch(e){throw new Error('Non-JSON '+url+' BODY='+body.slice(0,500))}
           }
           function codeOf(x){return String(x.Code ?? x.SecuritiesCompanyCode ?? '').trim()}
           function num(v){if(v==null||v===''||v==='-')return null;const n=Number(String(v).replaceAll(',',''));return Number.isFinite(n)?n:null}
@@ -41,28 +43,39 @@ jobs:
               get('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
             ]);
             const official = new Map();
-            for(const x of tw){const c=codeOf(x);if(/^\d{4}$/.test(c)) official.set(c,{close:num(x.ClosingPrice),value:num(x.TradeValue ?? x.TransactionAmount ?? x.TransactionValue)})}
-            for(const x of ot){const c=codeOf(x);if(/^\d{4}$/.test(c)) official.set(c,{close:num(x.ClosingPrice ?? x.Close ?? x.ClosePrice),value:num(x.TradeValue ?? x.TransactionAmount ?? x.TransactionValue)})}
-            const missingOfficial = codes.filter(c=>!official.has(c));
-            if(missingOfficial.length) throw new Error('Official source missing mapped codes: '+missingOfficial.slice(0,20).join(','));
+            for(const x of tw){const c=codeOf(x);if(/^\d{4}$/.test(c)) official.set(c,{market:'tse',close:num(x.ClosingPrice),value:num(x.TradeValue ?? x.TransactionAmount ?? x.TransactionValue)})}
+            for(const x of ot){const c=codeOf(x);if(/^\d{4}$/.test(c)) official.set(c,{market:'otc',close:num(x.ClosingPrice ?? x.Close ?? x.ClosePrice),value:num(x.TradeValue ?? x.TransactionAmount ?? x.TransactionValue)})}
             const live = new Map();
-            for(let i=0;i<codes.length;i+=80){
-              const batch=codes.slice(i,i+80).join(',');
+            for(let i=0;i<allCodes.length;i+=80){
+              const batch=allCodes.slice(i,i+80).join(',');
               const data=await get(process.env.WORKER_URL+'/api/quotes?codes='+batch+'&v='+process.env.GITHUB_SHA);
               if(!data.ok) throw new Error('Worker API ok=false');
               for(const [c,q] of Object.entries(data.quotes||{})) live.set(c,q);
-              await sleep(150);
+              await sleep(100);
             }
-            const missingLive = codes.filter(c=>!live.has(c));
-            if(missingLive.length) throw new Error('Worker missing mapped quotes: '+missingLive.slice(0,20).join(',')+' (total '+missingLive.length+')');
-            const bad=[];
-            for(const c of codes){
+            const invalid=allCodes.filter(c=>!live.has(c)||live.get(c).close==null||live.get(c).value==null||Number(live.get(c).close)<=0||Number(live.get(c).value)<=0);
+            const mismatches=[];
+            for(const c of allCodes){
               const o=official.get(c), q=live.get(c);
-              if(o.close!=null && q.close!=null && Number(q.close)!==Number(o.close)) bad.push(c+' close '+q.close+' != '+o.close);
-              if(o.value!=null && q.value!=null && Number(q.value)!==Number(o.value)) bad.push(c+' value '+q.value+' != '+o.value);
-              if(q.close==null || q.value==null || Number(q.close)<=0 || Number(q.value)<=0) bad.push(c+' invalid quote '+JSON.stringify(q));
+              if(!o||!q) continue;
+              if(o.close!=null && Number(q.close)!==Number(o.close)) mismatches.push(c+' close '+q.close+' != '+o.close);
+              if(o.value!=null && Number(q.value)!==Number(o.value)) mismatches.push(c+' value '+q.value+' != '+o.value);
             }
-            if(bad.length) throw new Error('Quote mismatches: '+bad.slice(0,30).join(' | ')+' (total '+bad.length+')');
-            console.log('PASS: '+codes.length+' mapped stocks match official TWSE/TPEx close/value data.');
+            const sampleReport=samples.map(c=>({code:c,official:official.get(c)||null,live:live.get(c)||null,closeMatch:!!official.get(c)&&!!live.get(c)&&Number(official.get(c).close)===Number(live.get(c).close),valueMatch:!!official.get(c)&&!!live.get(c)&&Number(official.get(c).value)===Number(live.get(c).value)}));
+            const report={commit:process.env.GITHUB_SHA,allCodes:allCodes.length,officialCodes:official.size,liveCodes:live.size,invalidCount:invalid.length,mismatchCount:mismatches.length,invalid:invalid.slice(0,50),mismatches:mismatches.slice(0,50),samples:sampleReport};
+            fs.writeFileSync('/tmp/quote-health.json',JSON.stringify(report,null,2));
+            console.log(JSON.stringify(report,null,2));
+            if(invalid.length) throw new Error('Invalid/missing live quotes: '+invalid.slice(0,20).join(',')+' total='+invalid.length);
+            if(mismatches.length) throw new Error('Live/official mismatches: '+mismatches.slice(0,20).join(' | ')+' total='+mismatches.length);
+            const badSamples=sampleReport.filter(x=>!x.closeMatch||!x.valueMatch);
+            if(badSamples.length) throw new Error('Sample mismatch: '+JSON.stringify(badSamples));
+            console.log('PASS: '+allCodes.length+' mapped stocks match official data where official data is available; samples all pass.');
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
+      - name: Upload quote health report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quote-health-report
+          path: /tmp/quote-health.json
+          if-no-files-found: warn

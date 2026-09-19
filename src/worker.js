@@ -24,6 +24,7 @@ async function quotes(url,env){
   // Do not fan out to per-stock fallbacks here; that caused Worker CPU errors on weekends.
   try{const r=await env.ASSETS.fetch(new Request(new URL('/low-base.json',url)));if(r.ok){const lb=await r.json();for(const c of requested){const x=lb?.stocks?.[c];if(x?.close!=null&&(!out[c]||out[c].close==null||out[c].value==null||out[c].value===0))out[c]={...(out[c]||{code:c,name:c,market:'otc'}),code:c,close:x.close,value:x.value??out[c]?.value??null,date:x.date||lb.dataDate,source:'盤後低基準備援'}}}}catch{}
   return json({ok:true,updated:new Date().toISOString(),quotes:out},'public, max-age=300');
+}
 return json({ok:true,updated:new Date().toISOString(),quotes:out},useMis()?'no-store':'public, max-age=300')}
 function isoDate(d){return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`}
 function slashDate(s){return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)}`}

@@ -17,6 +17,8 @@ jobs:
           node-version: '22'
       - name: Syntax check
         run: node --check src/worker.js
+      - name: Wait for Cloudflare Git deployment
+        run: sleep 60
       - name: Compare live quotes with official TWSE/TPEx
         env:
           WORKER_URL: https://tim-sector-ranking.timmy3398.workers.dev

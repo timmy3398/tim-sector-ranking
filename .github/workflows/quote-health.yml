@@ -28,7 +28,7 @@ jobs:
         run: |
           node <<'NODE'
           import fs from 'node:fs';
-          const samples=['2881','2882','3680','3131','6147','3259','5347','3707','3372'];
+          const samples=['2881','2882','8299','5351','3260','3680','3131','6147','3259','5347','3707','3372'];
           const out={commit:process.env.GITHUB_SHA,samples};
           async function getRaw(url){
             const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*','cache-control':'no-cache'}});
@@ -44,8 +44,8 @@ jobs:
             out.officialStatus={twse:tw.status,tpex:ot.status};
             if(tw.status!==200||ot.status!==200) throw new Error('Official API status '+JSON.stringify(out.officialStatus));
             const twj=JSON.parse(tw.body),otj=JSON.parse(ot.body),official={};
-            for(const x of twj){const c=String(x.Code??'').trim();if(samples.includes(c))official[c]={market:'tse',close:num(x.ClosingPrice),value:num(x.TradeValue??x.TransactionAmount??x.TransactionValue)}}
-            for(const x of otj){const c=String(x.SecuritiesCompanyCode??x.Code??'').trim();if(samples.includes(c))official[c]={market:'otc',close:num(x.ClosingPrice??x.Close??x.ClosePrice),value:num(x.TransactionAmount??x.TradeValue??x.TransactionValue)}}
+            for(const x of twj){const c=String(x.Code??'').trim();if(samples.includes(c)){const close=num(x.ClosingPrice),volume=num(x.TradeVolume??x.TradingShares??x.TradingVolume),reported=num(x.TradeValue??x.TransactionAmount??x.TransactionValue);official[c]={market:'tse',close,value:reported??(close!=null&&volume>0?volume*close:null),volume,calculated:reported==null&&close!=null&&volume>0}}}
+            for(const x of otj){const c=String(x.SecuritiesCompanyCode??x.Code??'').trim();if(samples.includes(c)){const close=num(x.ClosingPrice??x.Close??x.ClosePrice),volume=num(x.TradeVolume??x.TradingShares??x.TradingVolume),reported=num(x.TransactionAmount??x.TradeValue??x.TransactionValue);official[c]={market:'otc',close,value:reported??(close!=null&&volume>0?volume*close:null),volume,calculated:reported==null&&close!=null&&volume>0}}}
             out.official=official;
             const live=await getRaw(process.env.WORKER_URL+'/api/quotes?codes='+samples.join(',')+'&v='+process.env.GITHUB_SHA);
             out.liveStatus=live.status;
@@ -58,7 +58,7 @@ jobs:
               const o=official[c],q=out.live[c];
               if(!q) {bad.push(c+' missing');continue}
               if(o&&Number(q.close)!==Number(o.close)) bad.push(c+' close '+q.close+' != '+o.close);
-              if(o&&o.value!=null&&q.value!=null&&Number(q.value)!==Number(o.value)) bad.push(c+' value '+q.value+' != '+o.value);
+              if(o&&o.value!=null&&q.value!=null&&!o.calculated&&Number(q.value)!==Number(o.value)) bad.push(c+' value '+q.value+' != official '+o.value);
               if(q.close==null||q.value==null||Number(q.close)<=0||Number(q.value)<=0) bad.push(c+' invalid '+JSON.stringify(q));
             }
             out.bad=bad;

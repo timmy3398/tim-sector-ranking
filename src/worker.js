@@ -20,7 +20,34 @@ async function quotes(url,env){
   const out={};
   // Always load the official latest-close datasets first. On closed days, skip the expensive live/fallback chain and use low-base only to supplement missing quotes. // Health-checked against official sources.
   const [a,b]=await Promise.allSettled([jf(TWSE_CLOSE),jf(TPEX_CLOSE)]);if(a.status==='fulfilled')for(const o of a.value){const q=parseClose(o,'tse');if(q)out[q.code]=q}if(b.status==='fulfilled')for(const o of b.value){const q=parseClose(o,'otc');if(q)out[q.code]=q}if(!requested.length)requested=Object.keys(out);if(useMis()){const today=today8(),batches=[];for(let i=0;i<requested.length;i+=80)batches.push(requested.slice(i,i+80));for(let w=0;w<batches.length;w+=6){const rr=await Promise.allSettled(batches.slice(w,w+6).map(async batch=>jf('https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch='+encodeURIComponent(batch.flatMap(c=>out[c]?[`${out[c].market}_${c}.tw`]:[`otc_${c}.tw`,`tse_${c}.tw`]).join('|'))+'&json=1&delay=0&_='+Date.now()+Math.random())));for(const r of rr)if(r.status==='fulfilled')for(const x of r.value.msgArray||[]){const c=String(x.c||''),d=normDate(x.d),p=n(x.z)??n(x.trade?.z)??n(x.pz),y=n(x.y),v=n(x.v);if(d===today&&(p!=null||v!=null)){const base=out[c]||{code:c,name:String(x.n||c),market:String(x.ex||'').toLowerCase()==='otc'?'otc':'tse',value:null,close:null,change:null};out[c]={...base,name:String(x.n||base.name||c),close:p??base.close,change:p!=null&&y!=null?p-y:base.change,value:v!=null&&p!=null?v*1000*p:base.value,volume:v!=null?v*1000:base.volume,date:d,source:marketOpen()?'盤中':'今日收盤',time:x.trade?.t||x.t||''}}}}try{const r=await env.ASSETS.fetch(new Request(new URL('/low-base.json',url)));if(r.ok){const lb=await r.json();for(const c of requested){const x=lb?.stocks?.[c];if(x?.close!=null&&x?.value!=null&&Number(x.value)>0&&(!out[c]||out[c].close==null||out[c].value==null||out[c].value===0))out[c]={...(out[c]||{code:c,name:c,market:'otc'}),code:c,close:x.close,value:x.value??out[c]?.value??null,date:x.date||lb.dataDate,source:'盤後低基準備援'}}}}catch{}const missing=requested.filter(c=>!out[c]||out[c].close==null||out[c].value==null||out[c].value<=0);for(let i=0;i<missing.length;i+=8){const rr=await Promise.all(missing.slice(i,i+8).map(async c=>[c,await tpexFallback(c)??await yahooFallback(c)]));for(const [c,y] of rr)if(y)out[c]={...(out[c]||{code:c,market:'yahoo'}),...y,code:c}}}else{
-  // Closed day / after-hours: official latest-close first, low-base second, Yahoo only for missing turnover.
+  // Closed day / after-hours: official latest-close first. For any zero/missing turnover,
+  // fetch the latest official daily volume and calculate volume × close ourselves.
+  // This avoids depending on Yahoo's weekend quote-volume fields.
+  try{
+    const latest=[...Object.values(out)].map(x=>x?.date).filter(x=>/^\\d{8}$/.test(String(x))).sort().pop();
+    if(latest){
+      const [twseDay,tpexDay]=await Promise.allSettled([
+        jf(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${latest}&type=ALLBUT0999&response=json`),
+        jf(`https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=${encodeURIComponent(slashDate(latest))}&response=json`)
+      ]);
+      const want=new Set(requested);
+      if(twseDay.status==='fulfilled'){
+        const d=parseTwseDay(twseDay.value,latest,want);
+        for(const [c,x] of Object.entries(d)){
+          if(!out[c]||out[c].value==null||out[c].value<=0)
+            out[c]={...(out[c]||{}),code:c,close:out[c]?.close??null,value:x.value,date:latest,market:'tse',source:x.estimated?'證交所成交量×收盤價':'證交所官方成交金額'};
+        }
+      }
+      if(tpexDay.status==='fulfilled'){
+        const d=parseTpexDay(tpexDay.value,latest,want);
+        for(const [c,x] of Object.entries(d)){
+          if(!out[c]||out[c].value==null||out[c].value<=0)
+            out[c]={...(out[c]||{}),code:c,close:x.close??out[c]?.close??null,value:x.value,date:latest,market:'otc',source:x.estimated?'櫃買成交量×收盤價':'櫃買官方成交金額'};
+        }
+      }
+    }
+  }catch{}
+  // Static low-base is only a fast supplement for anything the official daily endpoint did not return.
   try{const r=await env.ASSETS.fetch(new Request(new URL('/low-base.json',url)));if(r.ok){const lb=await r.json();for(const c of requested){const x=lb?.stocks?.[c];if(x?.close!=null&&x?.value!=null&&Number(x.value)>0&&(!out[c]||out[c].close==null||out[c].value==null||out[c].value<=0))out[c]={...(out[c]||{code:c,name:c,market:'otc'}),code:c,close:x.close,value:x.value,date:x.date||lb.dataDate,source:'盤後低基準備援'}}}}catch{}
   const missing=requested.filter(c=>!out[c]||out[c].close==null||out[c].value==null||out[c].value<=0);
   for(let i=0;i<missing.length;i+=8){const rr=await Promise.allSettled(missing.slice(i,i+8).map(async c=>[c,await yahooFallback(c)]));for(const r of rr)if(r.status==='fulfilled'&&r.value[1]){const [c,y]=r.value;out[c]={...(out[c]||{}),...y,code:c}}}

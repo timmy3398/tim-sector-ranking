@@ -24,7 +24,7 @@ async function quotes(url,env){
   // fetch the latest official daily volume and calculate volume × close ourselves.
   // This avoids depending on Yahoo's weekend quote-volume fields.
   try{
-    const latest=[...Object.values(out)].map(x=>x?.date).filter(x=>/^\\d{8}$/.test(String(x))).sort().pop();
+    const latest=[...Object.values(out)].map(x=>x?.date).filter(x=>/^\d{8}$/.test(String(x))).sort().pop();
     if(latest){
       const [twseDay,tpexDay]=await Promise.allSettled([
         jf(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${latest}&type=ALLBUT0999&response=json`),

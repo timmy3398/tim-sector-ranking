@@ -58,7 +58,9 @@ jobs:
               const o=official[c],q=out.live[c];
               if(!q) {bad.push(c+' missing');continue}
               if(o&&Number(q.close)!==Number(o.close)) bad.push(c+' close '+q.close+' != '+o.close);
-              if(o&&o.value!=null&&q.value!=null&&!o.calculated&&Number(q.value)!==Number(o.value)) bad.push(c+' value '+q.value+' != official '+o.value);
+              const calculatedByWorker=String(q.source||'').includes('成交量×收盤價')||String(q.source||'').includes('量×收盤');
+              if(o&&o.value!=null&&q.value!=null&&!o.calculated&&!calculatedByWorker&&Number(q.value)!==Number(o.value)) bad.push(c+' value '+q.value+' != official '+o.value);
+              if(calculatedByWorker&&q.volume!=null&&q.close!=null){const expected=Number(q.volume)*Number(q.close);if(Math.abs(Number(q.value)-expected)>Math.max(1,expected*0.000001)) bad.push(c+' calculated value '+q.value+' != volume*close '+expected);}
               if(q.close==null||q.value==null||Number(q.close)<=0||Number(q.value)<=0) bad.push(c+' invalid '+JSON.stringify(q));
             }
             out.bad=bad;

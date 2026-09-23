@@ -12,16 +12,40 @@ const normDate = v => {
   return s;
 };
 
-async function getJson(url) {
-  const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0', accept: 'application/json,text/plain,*/*' } });
-  if (!r.ok) throw new Error(`${r.status} ${url}`);
-  return r.json();
-};
+async function getJson(url, attempts = 4) {
+  let lastError;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
+      try {
+        const r = await fetch(url, {
+          headers: {
+            'user-agent': 'Mozilla/5.0',
+            accept: 'application/json,text/plain,*/*',
+            connection: 'close'
+          },
+          signal: controller.signal
+        });
+        if (!r.ok) throw new Error(`${r.status} ${url}`);
+        return await r.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      lastError = err;
+      console.warn(`fetch attempt ${i}/${attempts} failed: ${url} — ${err?.message ?? err}`);
+      if (i < attempts) await new Promise(resolve => setTimeout(resolve, i * 1500));
+    }
+  }
+  throw lastError;
+}
 
-const [twse, tpex] = await Promise.all([
-  getJson('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
-  getJson('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
-]);
+// Fetch sequentially with retry. The official endpoints occasionally close a
+// large HTTPS response mid-stream; one transient failure should not kill the
+// entire daily snapshot.
+const twse = await getJson('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL');
+const tpex = await getJson('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes');
 
 const rows = {};
 let latestDate = '';
@@ -33,7 +57,14 @@ for (const x of twse) {
   const volume = num(x.TradeVolume ?? x.TradingShares ?? x.TradingVolume);
   const date = normDate(x.Date);
   if (!/^\d{4}$/.test(code) || close == null || close <= 0 || !date) continue;
-  rows[code] = { close, value: value != null && value > 0 ? value : (volume != null && volume > 0 ? volume * close : 1), volume, date, market: 'tse', source: value != null && value > 0 ? '證交所官方成交金額' : '證交所成交量×收盤價' };
+  rows[code] = {
+    close,
+    value: value != null && value > 0 ? value : (volume != null && volume > 0 ? volume * close : 1),
+    volume,
+    date,
+    market: 'tse',
+    source: value != null && value > 0 ? '證交所官方成交金額' : '證交所成交量×收盤價'
+  };
   if (date > latestDate) latestDate = date;
 }
 
@@ -44,15 +75,26 @@ for (const x of tpex) {
   const volume = num(x.TradingShares ?? x.TradeVolume ?? x.TradingVolume);
   const date = normDate(x.Date);
   if (!/^\d{4}$/.test(code) || close == null || close <= 0 || !date) continue;
-  rows[code] = { close, value: value != null && value > 0 ? value : (volume != null && volume > 0 ? volume * close : 1), volume, date, market: 'otc', source: value != null && value > 0 ? '櫃買官方成交金額' : '櫃買成交量×收盤價' };
+  rows[code] = {
+    close,
+    value: value != null && value > 0 ? value : (volume != null && volume > 0 ? volume * close : 1),
+    volume,
+    date,
+    market: 'otc',
+    source: value != null && value > 0 ? '櫃買官方成交金額' : '櫃買成交量×收盤價'
+  };
   if (date > latestDate) latestDate = date;
 }
 
-if (!latestDate || Object.keys(rows).length < 1000) throw new Error(`Official quote snapshot validation failed: date=${latestDate}, rows=${Object.keys(rows).length}`);
+if (!latestDate || Object.keys(rows).length < 1000) {
+  throw new Error(`Official quote snapshot validation failed: date=${latestDate}, rows=${Object.keys(rows).length}`);
+}
 
 let existing = { generatedAt: null, stocks: {} };
 try { existing = JSON.parse(await fs.readFile('public/low-base.json', 'utf8')); } catch {}
-for (const [code, quote] of Object.entries(rows)) existing.stocks[code] = { ...(existing.stocks[code] || {}), ...quote };
+for (const [code, quote] of Object.entries(rows)) {
+  existing.stocks[code] = { ...(existing.stocks[code] || {}), ...quote };
+}
 existing.generatedAt = new Date().toISOString();
 existing.dataDate = latestDate;
 existing.source = 'TWSE/TPEx official daily close snapshot; turnover fallback volume × close';

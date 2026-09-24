@@ -8,15 +8,16 @@ async function getJson(url,attempts=4){
   let lastError;
   for(let i=1;i<=attempts;i++){
     try{
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),30000);
       try{
         const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*','connection':'close'},signal:controller.signal});
-        if(!r.ok)throw Error(\`${r.status} ${url}\`);
+        if(!r.ok)throw Error(String(r.status)+' '+url);
         return await r.json();
       }finally{clearTimeout(timer)}
     }catch(e){
       lastError=e;
-      console.warn(\`fetch attempt ${i}/${attempts} failed: ${url} — ${e?.message??e}\`);
+      console.warn('fetch attempt '+i+'/'+attempts+' failed: '+url+' — '+(e?.message??e));
       if(i<attempts)await sleep(i*1500);
     }
   }

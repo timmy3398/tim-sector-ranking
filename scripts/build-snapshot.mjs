@@ -4,7 +4,24 @@ let mapping;try{mapping=JSON.parse(await fs.readFile('public/mapping.json','utf8
 const n=v=>{if(v==null)return null;const s=String(v).trim();if(!s||s==='-'||s==='--')return null;const x=Number(s.replaceAll(',','').replace(/[^0-9.-]/g,''));return Number.isFinite(x)?x:null};
 const norm=v=>{const s=String(v||'').replace(/[^0-9]/g,'');return s.length===7?String(Number(s.slice(0,3))+1911)+s.slice(3):s};
 const ymd=d=>`${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`,slash=s=>`${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)}`,sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function getJson(url){const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*'}});if(!r.ok)throw Error(`${r.status} ${url}`);return r.json()}
+async function getJson(url,attempts=4){
+  let lastError;
+  for(let i=1;i<=attempts;i++){
+    try{
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+      try{
+        const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0','accept':'application/json,text/plain,*/*','connection':'close'},signal:controller.signal});
+        if(!r.ok)throw Error(\`${r.status} ${url}\`);
+        return await r.json();
+      }finally{clearTimeout(timer)}
+    }catch(e){
+      lastError=e;
+      console.warn(\`fetch attempt ${i}/${attempts} failed: ${url} — ${e?.message??e}\`);
+      if(i<attempts)await sleep(i*1500);
+    }
+  }
+  throw lastError;
+}
 async function activeCodes(){const [tw,ot]=await Promise.all([getJson('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),getJson('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')]),s=new Set();for(const x of tw||[]){const c=String(x.Code||'').trim();if(/^\d{4}$/.test(c))s.add(c)}for(const x of ot||[]){const c=String(x.SecuritiesCompanyCode||'').trim();if(/^\d{4}$/.test(c))s.add(c)}return s}
 const active=await activeCodes(),removed=[];for(const [name,codes] of Object.entries(mapping)){const clean=[...new Set(codes)].filter(c=>active.has(c));for(const c of codes)if(!active.has(c))removed.push(`${name}:${c}`);mapping[name]=clean}await fs.writeFile('public/mapping.json',JSON.stringify(mapping));
 const MEMBERS=mapping,CATEGORIES=Object.keys(MEMBERS),wanted=new Set(Object.values(MEMBERS).flat());console.log(`active mapped stocks ${wanted.size}; removed stale mappings ${removed.length}`);

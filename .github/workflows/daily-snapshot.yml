@@ -60,7 +60,7 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
           cp /tmp/daily-snapshot/mapping.json public/mapping.json
-          cp /tmp/daily-snapshot/rank-history.json /tmp/daily-snapshot/rank-history.json
+          cp /tmp/daily-snapshot/rank-history.json public/rank-history.json
           cp /tmp/daily-snapshot/low-base.json public/low-base.json
 
           git add public/mapping.json public/rank-history.json public/low-base.json

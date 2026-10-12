@@ -1,0 +1,32 @@
+name: Probe twstock historical quotes
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Trading date to test (YYYYMMDD); blank uses Taiwan today"
+        required: false
+        type: string
+        default: "20261012"
+  pull_request:
+    paths:
+      - "scripts/probe-twstock.py"
+      - "scripts/update-twstock-fallback.py"
+      - ".github/workflows/twstock-probe.yml"
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install twstock from upstream repository
+        run: python -m pip install "git+https://github.com/mlouielu/twstock.git@dev"
+      - name: Probe selected stocks
+        env:
+          TARGET_DATE: ${{ inputs.target_date || '20261012' }}
+        run: python scripts/probe-twstock.py
+      - name: Dry-run fallback update on the four tested stocks
+        run: python scripts/update-twstock-fallback.py --dry-run --codes 2308,2301,2330,6282

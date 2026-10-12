@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - "scripts/probe-twstock.py"
+      - "scripts/update-twstock-fallback.py"
       - ".github/workflows/twstock-probe.yml"
 permissions:
   contents: read
@@ -27,3 +28,5 @@ jobs:
         env:
           TARGET_DATE: ${{ inputs.target_date || '20261012' }}
         run: python scripts/probe-twstock.py
+      - name: Dry-run fallback update on the four tested stocks
+        run: python scripts/update-twstock-fallback.py --dry-run --codes 5309,3211,4931,6121

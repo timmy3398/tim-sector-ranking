@@ -8,6 +8,7 @@ on:
     paths:
       - 'scripts/build-snapshot.mjs'
       - 'scripts/build-low-base.mjs'
+      - 'scripts/update-twstock-fallback.py'
       - '.github/workflows/daily-snapshot.yml'
 permissions:
   contents: write
@@ -17,6 +18,7 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +26,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Sync with latest main before building
         run: |
           git fetch origin main
@@ -32,6 +37,10 @@ jobs:
         run: node scripts/build-snapshot.mjs
       - name: Refresh official quote fallback
         run: node scripts/build-low-base.mjs
+      - name: Install twstock supplement
+        run: python -m pip install "git+https://github.com/mlouielu/twstock.git@dev"
+      - name: Refresh stale mapped quotes with twstock
+        run: python scripts/update-twstock-fallback.py
       - name: Commit snapshot if changed
         run: |
           git config user.name "github-actions[bot]"
@@ -51,7 +60,7 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
           cp /tmp/daily-snapshot/mapping.json public/mapping.json
-          cp /tmp/daily-snapshot/rank-history.json public/rank-history.json
+          cp /tmp/daily-snapshot/rank-history.json /tmp/daily-snapshot/rank-history.json
           cp /tmp/daily-snapshot/low-base.json public/low-base.json
 
           git add public/mapping.json public/rank-history.json public/low-base.json

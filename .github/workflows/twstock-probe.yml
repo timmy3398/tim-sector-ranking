@@ -29,4 +29,4 @@ jobs:
           TARGET_DATE: ${{ inputs.target_date || '20261012' }}
         run: python scripts/probe-twstock.py
       - name: Dry-run fallback update on the four tested stocks
-        run: python scripts/update-twstock-fallback.py --dry-run --codes 5309,3211,4931,6121
+        run: python scripts/update-twstock-fallback.py --dry-run --codes 2308,2301,2330,6282

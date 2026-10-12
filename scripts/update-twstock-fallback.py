@@ -76,7 +76,7 @@ def main():
         candidates = sorted({c.strip() for c in args.codes.split(",") if c.strip().isdigit() and len(c.strip()) == 4})
     else:
         candidates = mapped
-    stale = [c for c in candidates if str((stocks.get(c) or {}).get("date") or "") < target_text]
+    stale = [c for c in candidates if str((stocks.get(c) or {}).get("date") or "") < target_text or (stocks.get(c) or {}).get("change") is None]
     print(f"twstock target={target_text}; mapped={len(mapped)}; candidates={len(candidates)}; stale_to_fetch={len(stale)}; dry_run={args.dry_run}")
 
     updated = 0
@@ -91,7 +91,12 @@ def main():
                 updated += 1
                 if not args.dry_run:
                     old = stocks.get(code, {})
-                    stocks[code] = {**old, **quote}
+                    # When the official close/turnover is already current, use twstock
+                    # only to fill missing daily change; preserve official quote fields.
+                    if str(old.get("date") or "") == target_text and old.get("close") is not None and old.get("value") is not None:
+                        stocks[code] = {**quote, **old, "name": old.get("name") or quote["name"], "change": old.get("change") if old.get("change") is not None else quote["change"], "date": target_text}
+                    else:
+                        stocks[code] = {**old, **quote}
                 print(json.dumps({"code": code, **quote, "status": status}, ensure_ascii=False))
             else:
                 failed += 1

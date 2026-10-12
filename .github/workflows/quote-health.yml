@@ -51,13 +51,21 @@ jobs:
           }
           const num=v=>{if(v==null||v===''||v==='-')return null;const n=Number(String(v).replaceAll(',',''));return Number.isFinite(n)?n:null};
           try{
-            const [tw,ot]=await Promise.all([
+            const [tw,ot]=await Promise.allSettled([
               getRaw('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
               getRaw('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')
             ]);
-            out.officialStatus={twse:tw.status,tpex:ot.status};
-            if(tw.status!==200||ot.status!==200) throw new Error('Official API status '+JSON.stringify(out.officialStatus));
-            const twj=JSON.parse(tw.body),otj=JSON.parse(ot.body),official={};
+            out.officialStatus={
+              twse:tw.status==='fulfilled'?tw.value.status:'unavailable',
+              tpex:ot.status==='fulfilled'?ot.value.status:'unavailable'
+            };
+            out.officialErrors={
+              ...(tw.status==='rejected'?{twse:String(tw.reason)}:{}),
+              ...(ot.status==='rejected'?{tpex:String(ot.reason)}:{})
+            };
+            const twj=tw.status==='fulfilled'?JSON.parse(tw.value.body):[];
+            const otj=ot.status==='fulfilled'?JSON.parse(ot.value.body):[];
+            const official={};
             for(const x of twj){const c=String(x.Code??'').trim();if(samples.includes(c)){const close=num(x.ClosingPrice),volume=num(x.TradeVolume??x.TradingShares??x.TradingVolume),reported=num(x.TradeValue??x.TransactionAmount??x.TransactionValue);official[c]={market:'tse',close,value:reported??(close!=null&&volume>0?volume*close:null),volume,calculated:reported==null&&close!=null&&volume>0}}}
             for(const x of otj){const c=String(x.SecuritiesCompanyCode??x.Code??'').trim();if(samples.includes(c)){const close=num(x.ClosingPrice??x.Close??x.ClosePrice),volume=num(x.TradeVolume??x.TradingShares??x.TradingVolume),reported=num(x.TransactionAmount??x.TradeValue??x.TransactionValue);official[c]={market:'otc',close,value:reported??(close!=null&&volume>0?volume*close:null),volume,calculated:reported==null&&close!=null&&volume>0}}}
             out.official=official;

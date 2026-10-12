@@ -23,7 +23,24 @@ async function getJson(url,attempts=4){
   }
   throw lastError;
 }
-async function activeCodes(){const [tw,ot]=await Promise.all([getJson('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),getJson('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes')]),s=new Set();for(const x of tw||[]){const c=String(x.Code||'').trim();if(/^\d{4}$/.test(c))s.add(c)}for(const x of ot||[]){const c=String(x.SecuritiesCompanyCode||'').trim();if(/^\d{4}$/.test(c))s.add(c)}return s}
+async function activeCodes(){
+  const [tw,ot]=await Promise.allSettled([
+    getJson('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL'),
+    getJson('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes',1)
+  ]);
+  const s=new Set();
+  if(tw.status==='fulfilled'){
+    for(const x of tw.value||[]){const c=String(x.Code||'').trim();if(/^\d{4}$/.test(c))s.add(c)}
+  }else console.warn('TWSE active-list unavailable; retaining configured mappings:',tw.reason?.message||tw.reason);
+  if(ot.status==='fulfilled'){
+    for(const x of ot.value||[]){const c=String(x.SecuritiesCompanyCode||'').trim();if(/^\d{4}$/.test(c))s.add(c)}
+  }else{
+    console.warn('TPEx active-list unavailable; retaining configured mappings for OTC stocks:',ot.reason?.message||ot.reason);
+    for(const codes of Object.values(mapping))for(const c of codes)if(/^\d{4}$/.test(String(c)))s.add(String(c));
+  }
+  if(!s.size)for(const codes of Object.values(mapping))for(const c of codes)if(/^\d{4}$/.test(String(c)))s.add(String(c));
+  return s
+}
 const active=await activeCodes(),removed=[];for(const [name,codes] of Object.entries(mapping)){const clean=[...new Set(codes)].filter(c=>active.has(c));for(const c of codes)if(!active.has(c))removed.push(`${name}:${c}`);mapping[name]=clean}await fs.writeFile('public/mapping.json',JSON.stringify(mapping));
 const MEMBERS=mapping,CATEGORIES=Object.keys(MEMBERS),wanted=new Set(Object.values(MEMBERS).flat());console.log(`active mapped stocks ${wanted.size}; removed stale mappings ${removed.length}`);
 function parseTwse(j){const out={};for(const t of j.tables||[]){const f=t.fields||[],ci=f.findIndex(x=>String(x).includes('證券代號')),vi=f.findIndex(x=>String(x).includes('成交金額'));if(ci<0||vi<0)continue;for(const r of t.data||[]){const c=String(r[ci]||'').trim(),v=n(r[vi]);if(wanted.has(c)&&v!=null)out[c]={value:v,source:'official'}}}return out}

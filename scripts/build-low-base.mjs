@@ -58,6 +58,7 @@ for (const x of twse) {
   const date = normDate(x.Date);
   if (!/^\d{4}$/.test(code) || close == null || close <= 0 || !date) continue;
   rows[code] = {
+    name: String(x.Name ?? x.CompanyName ?? x.SecuritiesCompanyName ?? code).trim(),
     close,
     value: value != null && value > 0 ? value : (volume != null && volume > 0 ? volume * close : 1),
     volume,
@@ -76,6 +77,7 @@ for (const x of tpex) {
   const date = normDate(x.Date);
   if (!/^\d{4}$/.test(code) || close == null || close <= 0 || !date) continue;
   rows[code] = {
+    name: String(x.Name ?? x.CompanyName ?? x.SecuritiesCompanyName ?? code).trim(),
     close,
     value: value != null && value > 0 ? value : (volume != null && volume > 0 ? volume * close : 1),
     volume,

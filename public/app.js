@@ -1,9 +1,9 @@
-const CATEGORIES=["晶圓代工(台積電)","ASIC/矽智財","BMC(信驊)","高速傳輸IC","先進封裝設備","封裝測試","測試介面/設備","檢測分析","記憶體","ABF載板","CCL銅箔基板","玻纖布/銅箔","PCB(伺服器板/HDI)","散熱","電源/BBU","重電/電網","滑軌","機殼","高速連接器/線材","被動元件","組裝代工(ODM)","網通設備","矽光子/光通訊","磊晶/化合物半導體","低軌衛星","機器人","廠務工程","類比 IC","功率半導體","IC 通路","矽晶圓","軟板","玻璃基板","智慧型手機","面板產業","光學鏡頭","資安防護","玻璃陶瓷","離岸風電","太陽能產業","儲能系統整合","銀行金融","貨櫃航運","散裝航運","航空與空運","工業自動化","CNC 工具機","石化與塑膠產業","國防軍工","水泥","紡織成衣","鋼鐵金屬","食品飲料","營建地產","生技醫療"];
+const CATEGORIES=["晶圓代工(台積電)","ASIC/矽智財","BMC(信驊)","高速傳輸IC","先進封裝設備","封裝測試","測試介面/設備","檢測分析","記憶體","ABF載板","CCL銅箔基板","玻纖布/銅箔","PCB(伺服器板/HDI)","散熱","電源/BBU","重電/電網","滑軌","機殼","高速連接器/線材","被動元件","組裝代工(ODM)","網通設備","矽光子/光通訊","磊晶/化合物半導體","低軌衛星","機器人","廠務工程","類比 IC","功率半導體","IC 通路","矽晶圓","軟板","玻璃基板","智慧型手機","面板產業","光學鏡頭","資安防護","玻璃陶瓷","離岸風電","太陽能產業","儲能系統整合","銀行金融","貨櫃航運","散裝航運","航空與空運","CNC 工具機","石化與塑膠產業","國防軍工","水泥","紡織成衣","鋼鐵金屬","食品飲料","營建地產","生技醫療"];
 const MEMBERS={};
 let quotes={},snap={days:[],prevValues:{}},opened=null,sortKey='flowPp',desc=true;
 const fmt=(v,s='')=>v==null?'—':v.toLocaleString('zh-TW',{maximumFractionDigits:2,minimumFractionDigits:2})+s;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
-async function loadMapping(){const text=await(await fetch('/mapping.json?v=19')).text();Object.assign(MEMBERS,JSON.parse(text))}
+async function loadMapping(){const text=await(await fetch('/mapping.json?v=20')).text();Object.assign(MEMBERS,JSON.parse(text))}
 function quoteDate(){return Object.values(quotes).map(q=>String(q?.date||'')).filter(Boolean).sort().at(-1)||'99999999'}
 function historyDays(){const today=quoteDate();return (snap.days||[]).filter(x=>x.date<today).sort((a,b)=>b.date.localeCompare(a.date))}
 function rankAt(k,name){return historyDays()[k-1]?.ranks?.[name]??null}

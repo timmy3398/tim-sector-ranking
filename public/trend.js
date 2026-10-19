@@ -1,3 +1,9 @@
+// Load the compact quarterly-bias snapshot. Keep sector expansion working even if this file is unavailable.
+let quarterlyBias = {};
+fetch('/quarterly-bias.json?v=1').then(response => response.ok ? response.json() : null).then(data => {
+  if (data && data.stocks && typeof data.stocks === 'object') quarterlyBias = data.stocks;
+  if (typeof render === 'function') render();
+}).catch(() => {});
 // Rank trend enhancement using compact daily rank snapshots.
 function sparkline(a){const v=a.filter(Number.isFinite);if(v.length<2)return '<span class="muted">—</span>';const w=138,h=40,p=4,min=Math.min(...v),max=Math.max(...v),pad=Math.max(1,Math.ceil((max-min)*.08)),top=Math.max(1,min-pad),bottom=Math.min(CATEGORIES.length,max+pad),span=Math.max(2,bottom-top),pts=[];a.forEach((x,i)=>{if(!Number.isFinite(x))return;const X=p+i*(w-2*p)/Math.max(1,a.length-1),Y=p+(x-top)*(h-2*p)/span;pts.push(`${X.toFixed(1)},${Y.toFixed(1)}`)});const last=pts.at(-1).split(','),first=v[0],today=v.at(-1);return `<div style="display:flex;align-items:center;gap:5px"><svg class="spark" style="width:138px;height:40px" viewBox="0 0 ${w} ${h}" aria-label="T-10 到今日資金流向排名趨勢"><polyline points="${pts.join(' ')}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/><circle cx="${last[0]}" cy="${last[1]}" r="2.5" fill="currentColor"/></svg><small class="muted" style="white-space:nowrap">${first}→${today}</small></div>`}
 function classifyFlow(r,trend){

@@ -9,6 +9,7 @@ on:
       - 'scripts/build-snapshot.mjs'
       - 'scripts/build-low-base.mjs'
       - 'scripts/update-twstock-fallback.py'
+      - 'scripts/build-quarterly-bias.py'
       - '.github/workflows/daily-snapshot.yml'
 permissions:
   contents: write
@@ -41,6 +42,12 @@ jobs:
         run: python -m pip install "git+https://github.com/mlouielu/twstock.git@dev"
       - name: Refresh stale mapped quotes with twstock
         run: python scripts/update-twstock-fallback.py
+      - name: Install FinMind indicator client
+        run: python -m pip install FinMind
+      - name: Refresh quarterly bias for mapped stocks
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+        run: python scripts/build-quarterly-bias.py
       - name: Commit snapshot if changed
         run: |
           git config user.name "github-actions[bot]"
@@ -51,8 +58,9 @@ jobs:
           cp public/mapping.json /tmp/daily-snapshot/mapping.json
           cp public/rank-history.json /tmp/daily-snapshot/rank-history.json
           cp public/low-base.json /tmp/daily-snapshot/low-base.json
+          cp public/quarterly-bias.json /tmp/daily-snapshot/quarterly-bias.json
 
-          if git diff --quiet -- public/mapping.json public/rank-history.json public/low-base.json; then
+          if git diff --quiet -- public/mapping.json public/rank-history.json public/low-base.json public/quarterly-bias.json; then
             exit 0
           fi
 
@@ -62,8 +70,9 @@ jobs:
           cp /tmp/daily-snapshot/mapping.json public/mapping.json
           cp /tmp/daily-snapshot/rank-history.json public/rank-history.json
           cp /tmp/daily-snapshot/low-base.json public/low-base.json
+          cp /tmp/daily-snapshot/quarterly-bias.json public/quarterly-bias.json
 
-          git add public/mapping.json public/rank-history.json public/low-base.json
+          git add public/mapping.json public/rank-history.json public/low-base.json public/quarterly-bias.json
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "Update daily sector rank snapshot"
           git push origin HEAD:main

@@ -3,7 +3,7 @@
 import json
 import os
 import time
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -14,6 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 MAPPING = ROOT / "public" / "mapping.json"
 OUTPUT = ROOT / "public" / "quarterly-bias.json"
 MARKET_TZ = ZoneInfo("Asia/Taipei")
+
+
+def clean_history(df):
+    if df is None or df.empty or not {"date", "close"}.issubset(df.columns):
+        return pd.DataFrame(columns=["date", "close"])
+    df = df[["date", "close"]].copy()
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df = df.dropna(subset=["close"]).sort_values("date").drop_duplicates("date")
+    return df[df["close"] > 0]
 
 
 def main():
@@ -39,22 +48,23 @@ def main():
     if token:
         api.login_by_token(api_token=token)
 
-    # 120 calendar days normally cover at least 60 trading sessions, including holidays.
-    start_date = (datetime.now(MARKET_TZ).date() - timedelta(days=120)).isoformat()
+    # Start with 90 calendar days. Only request a longer range for a stock if
+    # that window does not contain the 60 valid trading-day closes needed.
+    today = datetime.now(MARKET_TZ).date()
+    start_90 = (today - timedelta(days=90)).isoformat()
+    start_120 = (today - timedelta(days=120)).isoformat()
     results = dict(previous)
     updated = 0
     failed = []
     for index, code in enumerate(codes, 1):
         try:
-            df = api.taiwan_stock_daily(stock_id=code, start_date=start_date)
-            if df is None or df.empty or "close" not in df.columns:
-                raise ValueError("FinMind returned no close-price history")
-            df = df[["date", "close"]].copy()
-            df["close"] = pd.to_numeric(df["close"], errors="coerce")
-            df = df.dropna(subset=["close"]).sort_values("date").drop_duplicates("date")
-            df = df[df["close"] > 0]
+            df = clean_history(api.taiwan_stock_daily(stock_id=code, start_date=start_90))
             if len(df) < 60:
-                raise ValueError(f"only {len(df)} valid closes; need 60")
+                print(f"[INFO] {code}: only {len(df)} valid closes in 90 days; extending window")
+                older = clean_history(api.taiwan_stock_daily(stock_id=code, start_date=start_120))
+                df = clean_history(pd.concat([older, df], ignore_index=True))
+            if len(df) < 60:
+                raise ValueError(f"only {len(df)} valid closes after fallback; need 60")
             close = float(df["close"].iloc[-1])
             ma60 = float(df["close"].tail(60).mean())
             if ma60 <= 0:

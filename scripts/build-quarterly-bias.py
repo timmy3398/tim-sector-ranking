@@ -3,8 +3,9 @@
 import json
 import os
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from FinMind.data import DataLoader
@@ -12,18 +13,26 @@ from FinMind.data import DataLoader
 ROOT = Path(__file__).resolve().parents[1]
 MAPPING = ROOT / "public" / "mapping.json"
 OUTPUT = ROOT / "public" / "quarterly-bias.json"
+MARKET_TZ = ZoneInfo("Asia/Taipei")
 
 
 def main():
     mapping = json.loads(MAPPING.read_text(encoding="utf-8"))
     codes = sorted({str(code) for group in mapping.values() for code in group
                     if str(code).isdigit() and len(str(code)) == 4})
-    previous = {}
+    previous_payload = {}
     if OUTPUT.exists():
         try:
-            previous = json.loads(OUTPUT.read_text(encoding="utf-8")).get("stocks", {})
+            previous_payload = json.loads(OUTPUT.read_text(encoding="utf-8"))
         except Exception:
-            previous = {}
+            previous_payload = {}
+    today_taipei = datetime.now(MARKET_TZ).date().isoformat()
+    # The snapshot workflow may also run on push/manual dispatch. Never call FinMind
+    # more than once per Taiwan calendar day if today's snapshot already exists.
+    if str(previous_payload.get("generatedAt", ""))[:10] == today_taipei:
+        print(f"quarterly bias already refreshed for {today_taipei}; skipping FinMind requests")
+        return
+    previous = previous_payload.get("stocks", {})
 
     api = DataLoader()
     token = os.getenv("FINMIND_TOKEN", "").strip()
@@ -31,7 +40,7 @@ def main():
         api.login_by_token(api_token=token)
 
     # 120 calendar days normally cover at least 60 trading sessions, including holidays.
-    start_date = (date.today() - timedelta(days=120)).isoformat()
+    start_date = (datetime.now(MARKET_TZ).date() - timedelta(days=120)).isoformat()
     results = dict(previous)
     updated = 0
     failed = []
@@ -71,7 +80,7 @@ def main():
     if updated == 0:
         raise RuntimeError("FinMind returned no usable quarterly-bias data; keeping previous output")
     payload = {
-        "generatedAt": date.today().isoformat(),
+        "generatedAt": datetime.now(MARKET_TZ).isoformat(),
         "source": "FinMind TaiwanStockPrice; 60-trading-day simple moving average",
         "stocks": results,
         "stats": {"mapped": len(codes), "updated": updated, "failed": len(failed)}

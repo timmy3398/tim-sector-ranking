@@ -3,7 +3,7 @@ const MEMBERS={};
 let quotes={},snap={days:[],prevValues:{}},opened=null,sortKey='flowPp',desc=true;
 const fmt=(v,s='')=>v==null?'—':v.toLocaleString('zh-TW',{maximumFractionDigits:2,minimumFractionDigits:2})+s;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
-async function loadMapping(){const text=await(await fetch('/mapping.json?v=19')).text();Object.assign(MEMBERS,JSON.parse(text))}
+async function loadMapping(){const text=await(await fetch('/mapping.json?v=20')).text();Object.assign(MEMBERS,JSON.parse(text))}
 function quoteDate(){return Object.values(quotes).map(q=>String(q?.date||'')).filter(Boolean).sort().at(-1)||'99999999'}
 function historyDays(){const today=quoteDate();return (snap.days||[]).filter(x=>x.date<today).sort((a,b)=>b.date.localeCompare(a.date))}
 function rankAt(k,name){return historyDays()[k-1]?.ranks?.[name]??null}

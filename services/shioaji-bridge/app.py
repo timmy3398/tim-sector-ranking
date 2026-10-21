@@ -59,9 +59,16 @@ def on_tick(exchange, tick):
         except (TypeError, ValueError):
             return None
     contract = contract_for(code)
+    change_pct = num("price_chg_pct")
+    change_amount = None
+    if change_pct is not None and change_pct > -100:
+        try:
+            change_amount = price - (price / (1 + change_pct / 100))
+        except ZeroDivisionError:
+            change_amount = None
     row = {
         "code": code, "name": getattr(contract, "name", code),
-        "close": price, "change": None, "changePct": num("price_chg_pct"),
+        "close": price, "change": change_amount, "changePct": change_pct,
         "volume": num("total_volume"), "value": num("total_amount"),
         "date": datetime.now().astimezone().strftime("%Y%m%d"),
         "time": str(getattr(tick, "datetime", "") or ""),

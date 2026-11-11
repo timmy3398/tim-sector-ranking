@@ -15,6 +15,33 @@ function today8(){const d=tw();return `${d.getUTCFullYear()}${String(d.getUTCMon
 function parseClose(o,market){const code=String(pick(o,['Code','SecuritiesCompanyCode','SecuritiesCompanyCode'])||'').trim();if(!/^\d{4}$/.test(code))return null;let value=n(pick(o,market==='otc'?['TransactionAmount','TradeValue','TransactionValue','Amount']:['TradeValue','TransactionAmount','TransactionValue','Amount']));const volume=n(pick(o,['TradeVolume','TradingShares','TradingVolume']));if((value==null||value===0)&&volume!=null&&volume>0){const close=n(pick(o,['ClosingPrice','Close','ClosePrice']));if(close!=null&&close>0)value=volume*close}if(value==null&&volume===0)value=0;if(value==null&&volume==null)value=0;return{code,name:String(pick(o,['Name','CompanyName','SecuritiesCompanyName'])||code).trim(),close:n(pick(o,['ClosingPrice','Close','ClosePrice'])),change:n(pick(o,['Change','ChangeAmount'])),value,volume,date:normDate(pick(o,['Date','TradeDate'])),market,source:'最近收盤'}}
 async function tpexFallback(c){for(const date of [today8(),...candidateDates()]){try{const dj=await jf('https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date='+encodeURIComponent(slashDate(date))+'&response=json');const d=parseTpexDay(dj,date,new Set([c]))[c];if(d?.close!=null)return{code:c,name:c,close:d.close,value:d.value,date,market:'otc',source:'櫃買官方日行情'}}catch{}try{const j=await jf('https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock?code='+c+'&date='+encodeURIComponent(slashDate(date))+'&id=&response=json');for(const t of j.tables||[]){const fields=t.fields||[];const ci=fieldIndex(fields,/代號/),ni=fieldIndex(fields,/名稱/),pi=fieldIndex(fields,/收盤/),vi=fieldIndex(fields,/成交金額/),qi=fieldIndex(fields,/成交股數|成交量/);for(const r of t.data||[]){const rc=ci>=0?String(r[ci]||'').trim():c;if(rc!==c)continue;const p=pi>=0?n(r[pi]):null,q=qi>=0?n(r[qi]):null;let value=vi>=0?n(r[vi]):null;if(value==null&&q!=null&&p!=null)value=q*p;if(p!=null)return{code:c,name:ni>=0?String(r[ni]||c).trim():c,close:p,volume:q,value,date,market:'otc',source:'櫃買官方個股'}}}}catch{}}return null}
 async function yahooFallback(c){for(const suffix of ['.TWO','.TW']){try{const r=await fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(c+suffix)+'?range=5d&interval=1d',{headers:{'user-agent':'Mozilla/5.0','accept':'application/json'}});if(!r.ok)continue;const j=await r.json(),m=j?.chart?.result?.[0];if(!m)continue;const ts=m.timestamp||[],q=m.indicators?.quote?.[0]||{},cl=q.close||[],vo=q.volume||[];for(let i=ts.length-1;i>=0;i--){const p=n(cl[i]),v=n(vo[i]);if(p!=null&&v!=null&&v>0)return{name:c,close:p,volume:v,value:v*p,date:new Date(ts[i]*1000+8*3600e3).toISOString().slice(0,10).replaceAll('-',''),market:suffix==='.TWO'?'otc':'tse',source:'Yahoo歷史日線備援'}}}catch{}}return null}
+
+async function shioajiQuotes(codes,env){
+  const base=String(env.SHIOAJI_BASE_URL||'').replace(/\/$/,'');
+  const token=env.SHIOAJI_PROXY_TOKEN;
+  if(!base||!token||!codes.length)return {};
+  try{
+    const r=await fetch(base+'/v1/quotes?codes='+encodeURIComponent(codes.join(',')),{
+      headers:{'authorization':'Bearer '+token,'accept':'application/json'},
+      signal:AbortSignal.timeout(1800),
+      cf:{cacheTtl:0}
+    });
+    if(!r.ok)return {};
+    const j=await r.json();
+    return j&&j.ok&&j.quotes&&typeof j.quotes==='object'?j.quotes:{};
+  }catch{return {}}
+}
+function mergeShioaji(out,live){
+  for(const [code,q] of Object.entries(live||{})){
+    if(!/^\d{4}$/.test(code)||!q||q.close==null)continue;
+    const old=out[code]||{code,name:q.name||code,market:q.market||'tw'};
+    out[code]={...old,...q,code,name:q.name||old.name||code,
+      value:q.value!=null?q.value:old.value,
+      volume:q.volume!=null?q.volume:old.volume,
+      source:q.source||'Shioaji即時'};
+  }
+}
+
 async function quotes(url,env){
   let requested=[...new Set((url.searchParams.get('codes')||'').split(',').filter(x=>/^\d{4}$/.test(x)))];
   const out={};
@@ -51,8 +78,10 @@ async function quotes(url,env){
   try{const r=await env.ASSETS.fetch(new Request(new URL('/low-base.json',url)));if(r.ok){const lb=await r.json();for(const c of requested){const x=lb?.stocks?.[c];if(x?.close!=null&&x?.value!=null&&Number(x.value)>0&&(!out[c]||out[c].close==null||out[c].value==null||out[c].value<=0||(x.date&&String(x.date)>String(out[c]?.date||''))))out[c]={...(out[c]||{code:c,name:x.name||c,market:'otc'}),code:c,name:x.name||out[c]?.name||c,close:x.close,change:x.change??out[c]?.change??null,value:x.value,date:x.date||lb.dataDate,source:'盤後低基準備援'}}}}catch{}
   const missing=requested.filter(c=>!out[c]||out[c].close==null||out[c].value==null||out[c].value<=0);
   for(let i=0;i<missing.length;i+=8){const rr=await Promise.allSettled(missing.slice(i,i+8).map(async c=>[c,await yahooFallback(c)]));for(const r of rr)if(r.status==='fulfilled'&&r.value[1]){const [c,y]=r.value;out[c]={...(out[c]||{}),...y,code:c}}}
+  mergeShioaji(out,await shioajiQuotes(requested,env));
   return json({ok:true,updated:new Date().toISOString(),quotes:out},'public, max-age=300');
 }
+mergeShioaji(out,await shioajiQuotes(requested,env));
 return json({ok:true,updated:new Date().toISOString(),quotes:out},useMis()?'no-store':'public, max-age=300')}
 function isoDate(d){return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`}
 function slashDate(s){return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)}`}
